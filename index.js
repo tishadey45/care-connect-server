@@ -1,13 +1,26 @@
+import cors from "cors";
 import "dotenv/config";
 import express from "express";
-import { MongoClient } from "mongodb";
-
+import { MongoClient, ServerApiVersion } from "mongodb";
 
 const app = express();
-const port = 5000;
+const port = process.env.PORT || 5000;
 
-const client = new MongoClient(process.env.MONGODB_URI);
-console.log(client);
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// MongoDB Connection
+const uri = process.env.MONGODB_URI;
+console.log(uri);
+
+const client = new MongoClient(uri, {
+  serverApi: {
+    version: ServerApiVersion.v1,
+    strict: true,
+    deprecationErrors: true,
+  },
+});
 
 export async function connectToMongoDB() {
   try {
@@ -19,6 +32,8 @@ export async function connectToMongoDB() {
   }
 }
 connectToMongoDB();
+
+app.post("/", (req, res) => {});
 
 app.get("/", (req, res) => {
   res.send("Hello World!");
