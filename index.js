@@ -33,15 +33,15 @@ export async function connectToMongoDB() {
 }
 connectToMongoDB();
 
-const db = client.db("careConnectDB");
+const db = client.db("care-Connect-db");
 const eventCollection = db.collection("eventCollection");
 const organizersCollection = db.collection("organizers");
 
 //create
 app.post("/upcoming-event", async (req, res) => {
-  const newEvent = req.body;
-  console.log(newEvent);
-  const result = await eventCollection.insertOne(newEvent);
+  const data = req.body;
+  console.log(data);
+  const result = await eventCollection.insertOne(data);
   res.send(result);
 });
 
@@ -87,11 +87,11 @@ app.put("/event/:id", async (req, res) => {
   res.send(result);
 });
 
-//  get all books created by a specific organizer
+//  get all event created by a specific organizer
 app.get("/events/:email", async (req, res) => {
   const email = req.params.email;
   console.log(email);
-  const query = { "seller.email": email };
+  const query = { "organizer.email": email };
   const event = await eventCollection.find(query).toArray();
   res.send(event);
 });
@@ -109,20 +109,20 @@ app.get("/organizers", async (req, res) => {
   res.send(cursor);
 });
 
-// get all organizer add by a specific user
+// get all organizer add by a specific participant
 app.get("/organizer/:email", async (req, res) => {
   const email = req.params.email;
   console.log(email);
-  const query = { "customer.email": email };
+  const query = { "participant.email": email };
   const event = await organizersCollection.find(query).toArray();
   res.send(event);
 });
 
-// get all organizers add by a specific user
+// get all organizers add by a specific participant
 app.get("/organizer-request/:email", async (req, res) => {
   const email = req.params.email;
   console.log(email);
-  const query = { "seller.email": email };
+  const query = { "organizer.email": email };
   const result = await organizersCollection.find(query).toArray();
   res.send(result);
 });
@@ -139,7 +139,11 @@ app.patch("/organizer/:id", async (req, res) => {
     },
   };
   const options = { upsert: true };
-  const result = await organizersCollection.updateOne(filter, updateDoc, options);
+  const result = await organizersCollection.updateOne(
+    filter,
+    updateDoc,
+    options,
+  );
   res.send(result);
 });
 
@@ -150,3 +154,6 @@ app.get("/", (req, res) => {
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
 });
+
+// organizer
+// participant
