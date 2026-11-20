@@ -4,15 +4,29 @@ import express from "express";
 import { MongoClient, ObjectId, ServerApiVersion } from "mongodb";
 
 const app = express();
-const port = process.env.PORT || 5000;
 
 // Middleware
-app.use(cors());
+app.use(
+  cors({
+    origin: ["http://localhost:3000", "https://care-connect-green-one.vercel.app"],
+    credentials: true,
+  }),
+);
+
+// app.use(
+//   cors({
+//     origin: true,
+//   }),
+// );
 app.use(express.json());
 
-// MongoDB Connection
+// MongoDB Configuration
+
 const uri = process.env.MONGODB_URI;
-console.log(uri);
+
+if (!uri) {
+  throw new Error("MONGODB_URI is missing!");
+}
 
 const client = new MongoClient(uri, {
   serverApi: {
@@ -22,138 +36,284 @@ const client = new MongoClient(uri, {
   },
 });
 
-export async function connectToMongoDB() {
+let clientPromise;
+
+async function connectToMongoDB() {
   try {
-    await client.connect();
-    console.log("You successfully connected to MongoDB!");
+    if (!clientPromise) {
+      console.log("Connecting to MongoDB...");
+
+      clientPromise = client.connect().catch((error) => {
+        clientPromise = null;
+        throw error;
+      });
+    }
+
+    await clientPromise;
+
+    console.log("MongoDB connected successfully!");
+
     return client;
-  } catch (err) {
-    console.dir(err);
+  } catch (error) {
+    console.error("MongoDB Connection Failed!");
+    console.error(error.message);
+
+    throw error;
   }
 }
-connectToMongoDB();
 
+// Database
 const db = client.db("care-Connect-db");
 const eventCollection = db.collection("eventCollection");
 const organizersCollection = db.collection("organizers");
 
-//create
+// MongoDB Middleware
+app.use(async (req, res, next) => {
+  try {
+    await connectToMongoDB();
+    next();
+  } catch (error) {
+    res.status(500).send({
+      success: false,
+      message: "MongoDB connection failed",
+      error: error.message,
+    });
+  }
+});
+
+// Validate MongoDB ObjectId
+const isValidObjectId = (id) =>
+  ObjectId.isValid(id) && String(new ObjectId(id)) === id;
+
+// ===============================
+// EVENT ROUTES
+// ===============================
+
+// Create Event
 app.post("/upcoming-event", async (req, res) => {
-  const data = req.body;
-  console.log(data);
-  const result = await eventCollection.insertOne(data);
-  res.send(result);
+  try {
+    const data = req.body;
+    const result = await eventCollection.insertOne(data);
+
+    res.send(result);
+  } catch (error) {
+    console.error("Create Event Error:", error);
+    res.status(500).send({ message: "Failed to create event" });
+  }
 });
 
-// for get all events
-app.get("/events", async (req, res) => {
-  const cursor = await eventCollection.find().toArray();
-  res.send(cursor);
+// Get All Events
+app.get("/upcoming-events", async (req, res) => {
+  try {
+    const result = await eventCollection.find().toArray();
+    res.send(result);
+  } catch (error) {
+    console.error("Get Events Error:", error);
+    res.status(500).send({ message: "Failed to get events" });
+  }
 });
 
-// for get a single events
-app.get("/event/:id", async (req, res) => {
-  const id = req.params.id;
-  console.log(id);
-  const query = { _id: new ObjectId(id) };
-  const result = await eventCollection.findOne(query);
-  res.send(result);
+// Get Single Event
+app.get("/upcoming-events/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!isValidObjectId(id)) {
+      return res.status(400).send({ message: "Invalid event ID" });
+    }
+
+    const result = await eventCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!result) {
+      return res.status(404).send({ message: "Event not found" });
+    }
+
+    res.send(result);
+  } catch (error) {
+    console.error("Get Single Event Error:", error);
+    res.status(500).send({ message: "Failed to get event" });
+  }
 });
 
-//  for delete event
+// Delete Event
 app.delete("/event/:id", async (req, res) => {
-  const id = req.params.id;
-  // console.log(id);
-  const query = { _id: new ObjectId(id) };
-  const result = await eventCollection.deleteOne(query);
-  res.send(result);
+  try {
+    const { id } = req.params;
+
+    if (!isValidObjectId(id)) {
+      return res.status(400).send({ message: "Invalid event ID" });
+    }
+
+    const result = await eventCollection.deleteOne({
+      _id: new ObjectId(id),
+    });
+
+    res.send(result);
+  } catch (error) {
+    console.error("Delete Event Error:", error);
+    res.status(500).send({ message: "Failed to delete event" });
+  }
 });
 
-//  for update a event
+// Update Event
 app.put("/event/:id", async (req, res) => {
-  const id = req.params.id;
-  const filter = { _id: new ObjectId(id) };
-  const updatedBook = req.body;
-  console.log(updatedBook);
-  const updatedDoc = {
-    $set: {
-      title: updatedDoc.title,
-      description: updatedDoc.description,
-      eventType: updatedDoc.eventType,
-    },
-  };
-  const options = { upsert: true };
-  const result = await eventCollection.updateOne(filter, updatedDoc, options);
-  res.send(result);
+  try {
+    const { id } = req.params;
+
+    if (!isValidObjectId(id)) {
+      return res.status(400).send({ message: "Invalid event ID" });
+    }
+
+    const filter = { _id: new ObjectId(id) };
+
+    const updatedEvent = { ...req.body };
+    delete updatedEvent._id;
+
+    const updatedDoc = {
+      $set: updatedEvent,
+    };
+
+    const result = await eventCollection.updateOne(filter, updatedDoc);
+
+    res.send(result);
+  } catch (error) {
+    console.error("Update Event Error:", error);
+    res.status(500).send({ message: "Failed to update event" });
+  }
 });
 
-//  get all event created by a specific organizer
+// Get Events By Organizer Email
 app.get("/events/:email", async (req, res) => {
-  const email = req.params.email;
-  console.log(email);
-  const query = { "organizer.email": email };
-  const event = await eventCollection.find(query).toArray();
-  res.send(event);
+  try {
+    const { email } = req.params;
+
+    const result = await eventCollection
+      .find({
+        "organizer.email": email,
+      })
+      .toArray();
+
+    res.send(result);
+  } catch (error) {
+    console.error("Get Organizer Events Error:", error);
+    res.status(500).send({ message: "Failed to get organizer events" });
+  }
 });
 
+// ===============================
+// ORGANIZER ROUTES
+// ===============================
+
+// Create Organizer
 app.post("/organizer", async (req, res) => {
-  const event = req.body;
-  console.log(event);
-  const result = await organizersCollection.insertOne(event);
-  res.send(result);
+  try {
+    const event = req.body;
+    const result = await organizersCollection.insertOne(event);
+
+    res.send(result);
+  } catch (error) {
+    console.error("Create Organizer Error:", error);
+    res.status(500).send({ message: "Failed to create organizer" });
+  }
 });
 
-//get all organizer
+// Get All Organizers
 app.get("/organizers", async (req, res) => {
-  const cursor = await organizersCollection.find().toArray();
-  res.send(cursor);
+  try {
+    const result = await organizersCollection.find().toArray();
+    res.send(result);
+  } catch (error) {
+    console.error("Get Organizers Error:", error);
+    res.status(500).send({ message: "Failed to get organizers" });
+  }
 });
 
-// get all organizer add by a specific participant
+// Get Organizers By Participant Email
 app.get("/organizer/:email", async (req, res) => {
-  const email = req.params.email;
-  console.log(email);
-  const query = { "participant.email": email };
-  const event = await organizersCollection.find(query).toArray();
-  res.send(event);
+  try {
+    const { email } = req.params;
+
+    const result = await organizersCollection
+      .find({
+        "participant.email": email,
+      })
+      .toArray();
+
+    res.send(result);
+  } catch (error) {
+    console.error("Get Participant Organizers Error:", error);
+    res.status(500).send({ message: "Failed to get organizers" });
+  }
 });
 
-// get all organizers add by a specific participant
+// Get Organizer Requests By Organizer Email
 app.get("/organizer-request/:email", async (req, res) => {
-  const email = req.params.email;
-  console.log(email);
-  const query = { "organizer.email": email };
-  const result = await organizersCollection.find(query).toArray();
-  res.send(result);
+  try {
+    const { email } = req.params;
+
+    const result = await organizersCollection
+      .find({
+        "organizer.email": email,
+      })
+      .toArray();
+
+    res.send(result);
+  } catch (error) {
+    console.error("Get Organizer Requests Error:", error);
+    res.status(500).send({ message: "Failed to get organizer requests" });
+  }
 });
 
-// update a organizer
+// Update Organizer Status
 app.patch("/organizer/:id", async (req, res) => {
-  const id = req.params.id;
-  const filter = { _id: new ObjectId(id) };
-  const updatedOrganizer = req.body;
-  console.log(updatedOrganizer);
-  const updateDoc = {
-    $set: {
-      status: updatedOrganizer.status,
-    },
-  };
-  const options = { upsert: true };
-  const result = await organizersCollection.updateOne(
-    filter,
-    updateDoc,
-    options,
-  );
-  res.send(result);
+  try {
+    const { id } = req.params;
+
+    if (!isValidObjectId(id)) {
+      return res.status(400).send({ message: "Invalid organizer ID" });
+    }
+
+    const filter = { _id: new ObjectId(id) };
+
+    const updateDoc = {
+      $set: {
+        status: req.body.status,
+      },
+    };
+
+    const result = await organizersCollection.updateOne(filter, updateDoc);
+
+    res.send(result);
+  } catch (error) {
+    console.error("Update Organizer Error:", error);
+    res.status(500).send({ message: "Failed to update organizer" });
+  }
 });
+
+// ===============================
+// DEFAULT ROUTE
+// ===============================
 
 app.get("/", (req, res) => {
-  res.send("Hello World!");
+  res.send("CareConnect Server is Running!");
 });
 
-app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`);
-});
+// Local Development
+if (process.env.NODE_ENV !== "production") {
+  const port = process.env.PORT || 5000;
 
-// organizer
-// participant
+  connectToMongoDB()
+    .then(() => {
+      app.listen(port, () => {
+        console.log(`CareConnect Server running on port ${port}`);
+      });
+    })
+    .catch((error) => {
+      console.error("Server startup failed:", error.message);
+      process.exit(1);
+    });
+}
+
+export default app;
